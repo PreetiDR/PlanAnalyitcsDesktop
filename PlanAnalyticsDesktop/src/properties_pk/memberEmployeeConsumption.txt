@@ -1,0 +1,53 @@
+CREATE DEFINER=`Sandy`@`%` PROCEDURE `memberResultSet`(IN dzee_client varchar(25), IN employerGroup varchar(25),IN enrollment_year varchar(25))
+BEGIN
+drop table IF EXISTS employee_consumption;
+CREATE TEMPORARY table IF NOT EXISTS employee_consumption As 
+(select m.email_id , 0 as family_consumption, m.member_id, b.total_consumption as individual_consumption,e.plan_enrollment_year
+from benefit_consumption b, members m, employee e, active_states ac, employer emp
+where
+ emp.dzee_client= "HRSolve"   and emp.employer_group = "CORHIO"  and e.plan_enrollment_year= "2017" 
+ and emp.email_id = e.employer_id and m.email_id = e.email_id 
+ and m.gender = b.gender and m.health_profile = b.health_profile 
+ and b.service_year = e.plan_enrollment_year and b.location = ac.states 
+ and m.age between b.age_from and b.age_to and m.location = ac.states
+ group by email_id, member_id,individual_consumption,e.plan_enrollment_year);
+
+drop table IF EXISTS tempdata; 
+ CREATE TEMPORARY table IF NOT EXISTS tempdata AS (SELECT * FROM employee_consumption); 
+ update employee_consumption set family_consumption = (select sum(individual_consumption) from tempdata e 
+ where e.email_id = employee_consumption.email_id group by email_id) where member_id = 0;
+ select * from employee_consumption;
+
+select emp.email_id, m.member_id,gender,health_profile,age,tobacco_usage,annual_income,empcon.individual_consumption,empcon.family_consumption,emp.plan_enrollment_year
+                 from employee emp, members m, employee_consumption empcon, employer emplr
+                 where 
+                 m.member_id = empcon.member_id 
+                 and m.email_id = emp.email_id 
+                and empcon.email_id= m.email_id
+                 and emp.plan_enrollment_year= empcon.plan_enrollment_year
+                and emp.employer_id = emplr.email_id
+                and emplr.dzee_client =  "HRSolve" 
+                and emplr.employer_group= "CORHIO"
+                and emp.plan_enrollment_year="2017" 
+                order by emp.email_id,m.member_id;
+END
+
+
+
+delete from employee_consumption; 
+INSERT INTO employee_consumption 
+(select m.email_id , 0 as family_consumption, m.member_id, b.total_consumption as individual_consumption,e.plan_enrollment_year
+from benefit_consumption b, members m, employee e, active_states ac, employer emp
+where
+ emp.dzee_client= 'HRSolve'  and emp.employer_group= 'CORHIO'  and e.plan_enrollment_year= '2017' 
+ and emp.email_id = e.employer_id and m.email_id = e.email_id 
+ and m.gender = b.gender and m.health_profile = b.health_profile 
+ and b.service_year = e.plan_enrollment_year and b.location = ac.states 
+ and m.age between b.age_from and b.age_to and m.location = ac.states
+ group by email_id, member_id,individual_consumption,e.plan_enrollment_year);
+
+drop table IF EXISTS tempdata; 
+ CREATE TEMPORARY table IF NOT EXISTS tempdata AS (SELECT * FROM employee_consumption); 
+ update employee_consumption set family_consumption = (select sum(individual_consumption) from tempdata e 
+ where e.email_id = employee_consumption.email_id group by email_id) where member_id = 0;
+ select * from employee_consumption;

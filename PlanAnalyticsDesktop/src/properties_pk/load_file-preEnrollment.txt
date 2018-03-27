@@ -1,0 +1,11 @@
+
+Delete from pre_enrollment_analytics_standard where dzee_client=? and employer=? and enrollment_year=? and analytic_type=1;
+
+LOAD DATA local INFILE "C:\\FileWriter\\preEnrollmentStandard.csv"
+ IGNORE
+ INTO TABLE pre_enrollment_analytics_standard
+ FIELDS TERMINATED BY '|'
+ OPTIONALLY ENCLOSED BY '"'
+ ignore 1 lines;
+
+ 

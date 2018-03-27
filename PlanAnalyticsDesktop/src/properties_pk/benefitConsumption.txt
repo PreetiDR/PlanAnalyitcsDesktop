@@ -1,0 +1,24 @@
+delete from benefit_consumption;
+INSERT INTO benefit_consumption
+ 
+(select hscv.gender, hscv.health_profile, hscv.min_age_range, hscv.max_age_range, hscv.location, hscv.service_year,
+ 
+sum(hscv.service_usage * sc.service_cost * sm.service_cost_coefficient) as total_service_cost
+
+ 
+from hsc_values hscv, service_cost sc, state_multipliers sm, active_states ac
+
+ 
+where 
+hscv.service_category = sc.service_category
+ 
+and hscv.service_level=sc.service_level 
+
+and sm.state= ac.states 
+
+and hscv.location= ac.states
+
+
+ group by hscv.gender,hscv.health_profile,hscv.min_age_range,hscv.max_age_range,hscv.location,hscv.service_year 
+
+ order by hscv.gender,hscv.health_profile,hscv.min_age_range,hscv.max_age_range,hscv.location,hscv.service_year);

@@ -1,0 +1,27 @@
+delete from financial_plan_attributes;
+
+insert into financial_plan_attributes
+(plan_id,total_copay,service_year,minexpense)
+
+ 
+select opd.healthcare_plan_id,sum(pc.total_co_pay) as total_copay,service_year,
+
+case 
+when opd.plan_level_co_insurance = 0 then 9999999999999 
+else 
+opd.individual_in_network_deductible_limit + (opd.individual_in_network_oop_limit - opd.individual_in_network_deductible_limit)/opd.plan_level_co_insurance end as minexpense 
+
+
+from organization_plans_data opd, plan_copay pc, active_states ac 
+
+
+where 
+opd.enrollment_year = pc.service_year 
+
+and ac.states = pc.location 
+
+and opd.healthcare_plan_id = pc. plan_id 
+
+group by opd.healthcare_plan_id,service_year, minexpense 
+
+order by opd.healthcare_plan_id

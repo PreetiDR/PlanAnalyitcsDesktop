@@ -1,0 +1,29 @@
+truncate plan_copay;
+
+insert into plan_copay 
+(
+SELECT a.plan_id, b.gender, b.health_profile, b.age_group, b.min_age_range, b.max_age_range, b.location, b.service_year,
+sum(b.service_usage * a.service_level_copay) as total_co_pay
+
+from plan_recommend.pbcf_values a, plan_recommend.hsc_values b,
+plan_recommend.organization_plans_data d
+
+where 
+a.service_category = b.service_category
+and b.service_usage > 0
+and a.service_level_copay > 0
+and a.service_level = b.service_level
+and a.plan_id = d.healthcare_plan_id
+
+and ((b.location = d.state) or (b.location = 'USA'and d.state='All'))
+
+and b.service_year = d.enrollment_year
+and d.dzee_approved = '1'
+and d.is_deleted = '0'
+
+and d.employer_group ='E01'
+
+group by a.plan_id, b.gender, b.health_profile, b.age_group,b.min_age_range,b.max_age_range, b.location, b.service_year
+
+order by a.plan_id, b.gender, b.health_profile, b.age_group,b.min_age_range,b.max_age_range, b.location, b.service_year
+);
