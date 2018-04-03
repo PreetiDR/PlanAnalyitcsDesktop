@@ -45,6 +45,7 @@ public class PlanDetail {
         this.PremiumbasedPlanRank = PremiumbasedPlanRank; }
 
     public String getdzee_client() { return dzee_client; }
+    
     public String getemployer_group() {return employer_group;}
     public int getEnrollment_Year() { return Enrollment_Year; }
     public String getEmployee_Email_ID() { return Employee_Email_id; }
@@ -58,7 +59,11 @@ public class PlanDetail {
     public int getHSAContribution() { return HSAContribution;}
     public int getFSAContribution() { return FSAContribution;}
     public int getTaxAdjustedOOP() { return TaxAdjustedOOP; }
-    public double getEmployerPremiumContribution(){ return EmployerPremiumContribution ;}
+    public double getEmployerPremiumContribution() {
+		return EmployerPremiumContribution;
+	}
+
+    //public double getEmployerPremiumContribution(){ return EmployerPremiumContribution ;}
    /* public int getTotalCostbasedPlanRank(){return TotalCostbasedPlanRank; }
     public int getPremiumbasedPlanRank(){return PremiumbasedPlanRank;}*/
    //public int getEmployerCost(){ return EmployerCost ;}

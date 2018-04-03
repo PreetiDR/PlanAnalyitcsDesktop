@@ -1,5 +1,5 @@
-package PreEnrollMentAnayltics;
 
+package PreEnrollMentAnayltics;
 
 import java.sql.PreparedStatement;
 import java.io.BufferedWriter;
@@ -17,22 +17,28 @@ import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Vector;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.ListIterator;
 
 import com.mysql.jdbc.Util;
 
 import PreEnrollMentAnayltics.EmployeeConsumption;
 import PreEnrollMentAnayltics.CSVWrite;
 
-public class PlanAnalytics {
+public class PlanAnalytics{
 	
 	private final String JDBC_DRIVER = "com.mysql.jdbc.Driver";
-    private final String URL = "jdbc:mysql://dzanalytics.dzeecloud.com:3306/plan_recommend";
+    private String URL; // = "jdbc:mysql://dzanalytics.dzeecloud.com:3306/plan_recommend?useSSL=false";
     private final String USER = "root1";
     private final String PASSWORD = "Dzee2015$";
     static Connection connection = null;
-    private ResultSet planResultSet, memResultSet,globalResultSet,employerPremiumContribution,hSAFSAResultSet,employeeConsumptionResultSet;
-    public String dzee_client,employerGroup, enrollment_year;
+    private ResultSet planResultSet, memResultSet,globalResultSet,employerPremiumContribution,hSAFSAResultSet,employeeConsumptionResultSet, organizationPlansResultSet;
+    private ResultSet allPremium, familyPremium, coPay;
+    public String server_name, database_name, dzee_client, employerGroup, enrollment_year;
     static ArrayList<Integer> list = new ArrayList<Integer>();
     int taxArray[][] = new int[2][5];
     ArrayList<planInfo> premiumList = new ArrayList<planInfo>();
@@ -42,9 +48,9 @@ public class PlanAnalytics {
     int noEmpRecords=0;
     int noOfPlanRecords = 0;
     public String filePath,fileName; 
-    public final static String outdir = System.getProperty("user.dir")+ "/properties_pk";
-	public static final String outstr = "preEnrollmentStandard";
-    public final String outfilePath = "/Users/ratnakar/Documents/DZEE/PreEnrollmentAnalytics/src/properties_pk/";
+    public final static String outdir = System.getProperty("user.dir")+ "/src/properties_pk";
+    public static final String outstr = "preEnrollmentStandard";
+    public final String outfilePath = "/Users/ratnakar/git/PlanAnalyitcsDesktop/PlanAnalyticsDesktop/src/properties_pk/";
   
 
     class planInfo implements Comparable<planInfo>{
@@ -72,55 +78,97 @@ public class PlanAnalytics {
                return -1;
         }
     }
-         String memSql=" select emp.email_id, m.member_id,gender,relation,health_profile,age,tobacco_usage,annual_income,empcon.individual_consumption,emp.plan_enrollment_year"
-                +" from employee emp, members m, employee_consumptiontemp empcon, employer emplr"
+    	
+    	//updated planSql 29 Mar 2018
+    
+    
+  //Modified employee_consumptiontempSql to include all additional fields from memSql on 03/28/2018
+    
+    String employee_consumptiontempSql ="CREATE TEMPORARY table IF NOT EXISTS employee_consumptiontemp (primary key ekey (email_id, member_id)) AS (select m.email_id, m.member_id, m.gender, "
+    		+ " m.relation, m.health_profile, m.age, m.tobacco_usage, e.annual_income, e.plan_enrollment_year, " 
+    		+ " (e.spouse + e.no_of_children +1) as member_count, b.total_consumption as individual_consumption "
+    	    + " from benefit_consumption b, members m, employee e, employer emp " 
+    		+ " where " 
+    		+ " emp.dzee_client= ? "
+    		+ " and emp.employer_group= ? "
+    		+ " and e.plan_enrollment_year= ? "
+    		+ " and emp.email_id = e.employer_id and m.email_id = e.email_id "
+    		+ " and m.gender = b.gender and m.health_profile = b.health_profile "
+    		+ " and b.service_year = e.plan_enrollment_year "
+    		+ " and m.age between b.age_from and b.age_to "
+    		+ " and ((m.member_id < 1) or (m.member_id = 1 and m.relation = 'Spouse' and m.age < 65) or (m.member_id > 0 and m.relation = 'Child' and m.age <= 26)) "
+    		+ " and b.location='Colorado' "
+    		+ " and emp.deleted=false  "
+			+ " and e.deleted=false  "
+    		+ " group by email_id, member_id,individual_consumption,e.plan_enrollment_year);";   
+    
+    	String memSql = "select * from employee_consumptiontemp;";
+    	/*String memSql=" select emp.email_id, m.member_id,gender,relation,health_profile,age,tobacco_usage,annual_income,empcon.individual_consumption,emp.plan_enrollment_year,(emp.spouse+emp.no_of_children+1) as member_count"
+                +" from employee emp, members m, employee_consumptiontemp empcon"
                 +" where "
                 +" m.member_id = empcon.member_id "
+                +" and ((m.member_id < 1) or (m.member_id = 1 and m.relation = 'Spouse' and m.age < 65) or (m.member_id > 0 and m.relation = 'Child' and m.age <= 26))"
                 +" and m.email_id = emp.email_id "
                 +" and empcon.email_id= m.email_id"
-                +" and emp.plan_enrollment_year= empcon.plan_enrollment_year"
-                +" and emp.employer_id = emplr.email_id"
-                +" and ((m.member_id < 1) or (m.member_id = 1 and m.relation = 'Spouse' and m.age < 65) or (m.member_id > 0 and m.relation = 'Child' and m.age <= 26))"
-                +" and emplr.dzee_client = ? "
-                +" and emplr.employer_group= ? "
-                +" and emp.plan_enrollment_year= ? "
-                +" and emp.deleted=false "
-    			+" and emplr.deleted=false "
-    			+" order by emp.email_id,m.member_id ";
-
-         String planSql = "select dzee_client,employer_group , healthcare_plan_id, minexpense,total_copay,"
-                + " individual_in_network_deductible_limit, family_in_network_deductible_limit, "
-                + " individual_in_network_oop_limit, family_in_network_oop_limit, plan_level_co_insurance, detailed_premium, opd.enrollment_year "
-                + " from organization_plans_data opd, financial_plan_attributes fp "
-                + " where "
-                + " fp.plan_id = opd.healthcare_plan_id "
-                + " and opd.enrollment_year = fp.service_year"
-                + " and opd.is_deleted <> 1"
-                + " and dzee_client = ? "
-                + " and opd.employer_group= ? "
-                + " and enrollment_year = ? "
-                + " and opd.is_deleted=false "
-    			+ " and opd.dzee_approved=true";
-
-        //updated planCopaySql on 03/20/2018 
-        String planCopaySql = "SELECT total_co_pay "
-        		+ " FROM plan_copay pc, "
-        		+ " organization_plans_data opd,active_states ac"
-                + " where "
-                + " plan_id = ? "
-                + " and gender = ?"
-                + " and health_profile = ? "
-                + " and ? between min_age_range and max_age_range"
-                + " and service_year = ?"
-                + " and opd.healthcare_plan_id = pc.plan_id"
-                + " and (ac.states = opd.state) Or (opd.state = 'All' and ac.states='USA')"
-                + " and ac.states = pc.location"
-                + " and opd.employer_group =? "
-                + " and opd.dzee_client = ? ";
-
-
-        String detailPremiumSql = "select emp.email_id, org.healthcare_plan_id,sum(ag.premium) as premiums,org.enrollment_year "
-                + " from organization_plans_data org,employee emp,age_wise_premiums ag,members m "
+    			+" order by emp.email_id,m.member_id "; 
+         */
+    
+         //updated planSql 29 Mar 2018
+        /* String planSql = "select dzee_client,employer_group, healthcare_plan_id," 
+         		 +"case "
+         		 +"when opd.plan_level_co_insurance = 0 then 9999999999999 "
+         		 +"else " 
+         		 +"opd.individual_in_network_deductible_limit + "
+         		 +"(opd.individual_in_network_oop_limit - opd.individual_in_network_deductible_limit)/opd.plan_level_co_insurance "
+                 +"end as minexpense, opd.individual_in_network_deductible_limit, family_in_network_deductible_limit, "
+                 + "individual_in_network_oop_limit, family_in_network_oop_limit, plan_level_co_insurance, detailed_premium, opd.enrollment_year " 
+				 + "from organization_plans_data opd "
+				 + "where " 
+                 + "opd.is_deleted <> 1 "
+                 + "and dzee_client = ? "
+                 + "and opd.employer_group= ? "
+                 + "and enrollment_year = ? "  
+                 + "and opd.is_deleted=false "
+    			 + "and opd.dzee_approved=true";
+    			*/
+    	/*String planCopaySql = "SELECT e.email_id, pc.plan_id, sum(pc.total_co_pay) as copay"
+        		+"                          FROM plan_copay pc,"
+        		+"                          organization_plans_data opd, members m, employee e, employee_consumptiontemp em "
+        		+"                  where"
+        		+"                  opd.dzee_client  = ?"
+        		+"                  and opd.employer_group = ? "
+        		+"                  and opd.enrollment_year = ?"
+        		+"                  and opd.healthcare_plan_id = pc.plan_id"
+        		+"                  and e.email_id=em.email_id"
+        		+"                  and m.email_id = e.email_id"
+        		+"                  and pc.gender=m.gender"
+        		+"                  and pc.health_profile=m.health_profile"
+        		+"                  and (m.age between pc.min_age_range and pc.max_age_range)"
+        		+"                  and pc.location = opd.state"
+        		+"                  "
+        		+"                  group by e.email_id, pc.plan_id"
+        		+"                  order by e.email_id, pc.plan_id"
+        		+"                  ;";
+    		*/	
+        //updated all following queries to refer to organizationPlans table instead on organizationPlansData table on 04/02/2018
+    	
+    	String planCopaySql = "SELECT e.email_id, pc.plan_id, sum(pc.total_co_pay) as copay"
+        		+"                          FROM plan_copay pc,"
+        		+"                          organizationPlans op, employee e, employee_consumptiontemp em "
+        		+"                  where"
+        		+"                  op.healthcare_plan_id = pc.plan_id"
+        		+"                  and e.email_id=em.email_id"
+        		+"                  and pc.gender=em.gender"
+        		+"                  and pc.health_profile=em.health_profile"
+        		+"                  and (em.age between pc.min_age_range and pc.max_age_range)"
+        		+"                  and pc.location = op.state"
+        		+"                  "
+        		+"                  group by e.email_id, pc.plan_id"
+        		+"                  order by e.email_id, pc.plan_id"
+        		+"                  ;";
+        
+       /* String detailPremiumSql = "select emp.email_id, org.healthcare_plan_id,sum(ag.premium) as premiums,org.enrollment_year "
+                + " from organization_plans_data org,employee emp,age_wise_premiums ag,members m, employee_consumptiontemp t  "
                 + " where org.healthcare_plan_id = ag.healthcare_plan_id "
                 + " and m.email_id=emp.email_id "
                 + " and ((m.member_id < 1) or (m.member_id = 1 and m.relation = 'Spouse' and m.age < 65) or (m.member_id > 0 and m.relation = 'Child' and m.age <= 26))"
@@ -131,52 +179,72 @@ public class PlanAnalytics {
                 + " and org.dzee_client = ag.dzee_client"
                 + " and org.dzee_client= ?"
                 + " and org.employer_group= ?"
-                + " and org.healthcare_plan_id = ? "
-                + " and emp.email_id= ? "
                 + " and org.enrollment_year = ? "
-                + " and org.detailed_premium=1 ";
+                + " and emp.email_id = t.email_id"
+                + " and org.detailed_premium=1 "
+                + " group by emp.email_id, org.healthcare_plan_id ;";
+*/
+    	
+    	
+    	String detailPremiumSql = "select t.email_id, op.healthcare_plan_id,sum(ag.premium) as premiums"
+                + " from organizationPlans op, age_wise_premiums ag, employee_consumptiontemp t  "
+                + " where ag.healthcare_plan_id = op.healthcare_plan_id "
+                + " and ag.dzee_client = op.dzee_client"
+                + " and ag.employer_group = op.employer_group"
+                + " and t.age between ag.age_from and ag.age_to"
+                + " and op.detailed_premium=1 "
+                + " group by t.email_id, op.healthcare_plan_id ;";
 
-         String premiumSql = "select temp.email_id,healthcare_plan_id,enrollment_year,"
-                 +" ( "
-                 +" CASE" 
-                 +" WHEN(temp.spouse ='0' && temp.number_of_children='0') THEN opd.primary_healthcare_plan_premium "
-                 +" WHEN(temp.spouse ='0' && temp.number_of_children= '1') THEN opd.primary_one_child_healthcare_plan_premium" 
-                 +" WHEN(temp.spouse ='0' && temp.number_of_children= '2') THEN opd. primary_two_children_healthcare_plan_premium "
-                 +" WHEN(temp.spouse ='0' && temp.number_of_children>= '3') THEN opd.primary_three_and_more_children_healthcare_plan_premium "
-                 +" WHEN(temp.spouse ='1' && temp.number_of_children= '0') THEN opd.couple_healthcare_plan_premium "
-                 +" WHEN(temp.spouse ='1' && number_of_children = '1') THEN opd.couple_one_child_healthcare_plan_premium"
-                 +" WHEN(temp.spouse ='1' && temp.number_of_children= '2') THEN opd.couple_two_children_healthcare_plan_premium" 
-                 +" WHEN(temp.spouse ='1' && temp.number_of_children>= '3') THEN opd.couple_three_children_and_more_healthcare_plan_premium "
-                 +" ELSE 1 "
-                 +" END)as premiums "
-                 +" from "
-                 +" (select m.email_id, m.member_id,m.tobacco_usage,m.relation,m.age, sum(spouse) as spouse, sum(number_of_children) as number_of_children"
-                 +" from "
-                 +" (select  email_id, "
-                 +" if(m.relation='Spouse', 1,0) spouse,"
-                 +" if(m.relation='Child',1,0) number_of_children "
-                 +" from members m"
-                 +" where"
-                 +" ((m.member_id < 1) or (m.member_id = 1 and m.relation = 'Spouse' and m.age < 65) or (m.member_id > 0 and m.relation = 'Child' and m.age <= 26))"
-                 +" and m.email_id= ? ) as tempdata , members m"
-                 +" where m.email_id = tempdata.email_id and member_id = 0 group by email_id) as temp ,organization_plans_data opd"
-                 +" where"
-                 +" opd.dzee_client = ?"
-                 +" and opd.employer_group= ?"
-                 +" and opd.enrollment_year= ? "
-                 +" and opd.healthcare_plan_id = ? "
-                 +" and opd.is_deleted=false" 
-                 +" and opd.dzee_approved=true" 
-                 +" order by temp.email_id,temp.member_id";
 
-       String enrollmentSql = "insert into pre_enrollment_analytics_standard (dzee_client,employer,enrollment_year,employee_email_id,plan_id,total_cost_based_plan_rank,employer_total_cost_based_plan_rank, "
-                + "oop,monthly_premium,annual_healthcare_premium_plus_OOP,total_family_service_cost,annual_supplement_plan_premium,hsa_contribution,fsa_contribution,tax_adjusted_OOP,analytic_type, "
-                + "employer_premium_contribution, employer_oop_contribution) "
-                + " values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+  /*      String premiumSql = "select m.email_id,healthcare_plan_id,"
+       		 +"                  ( "
+       		 +"                  CASE "
+       		 +"                  WHEN(m.spouse ='0' && m.no_of_children='0') THEN opd.primary_healthcare_plan_premium "
+       		 +"                  WHEN(m.spouse ='0' && m.no_of_children= '1') THEN opd.primary_one_child_healthcare_plan_premium"
+       		 +"                  WHEN(m.spouse ='0' && m.no_of_children= '2') THEN opd. primary_two_children_healthcare_plan_premium "
+       		 +"                  WHEN(m.spouse ='0' && m.no_of_children>= '3') THEN opd.primary_three_and_more_children_healthcare_plan_premium "
+       		 +"                  WHEN(m.spouse ='1' && m.no_of_children= '0') THEN opd.couple_healthcare_plan_premium "
+       		 +"                  WHEN(m.spouse ='1' && no_of_children = '1') THEN opd.couple_one_child_healthcare_plan_premium"
+       		 +"                  WHEN(m.spouse ='1' && m.no_of_children= '2') THEN opd.couple_two_children_healthcare_plan_premium "
+       		 +"                  WHEN(m.spouse ='1' && m.no_of_children>= '3') THEN opd.couple_three_children_and_more_healthcare_plan_premium "
+       		 +"                  ELSE 1 "
+       		 +"                  END)as premiums "
+       		 +"                  from organization_plans_data opd, employee m, employee_consumptiontemp t"
+       		 +"                  where"
+       		 +"                  m.email_id = t.email_id"
+       		 +"                  and t.member_id = 0"
+       		 +"                  and opd.dzee_client = ?"
+       		 +"                  and opd.employer_group= ?"
+       		 +"                  and opd.enrollment_year= ? "
+       		 +"                  and opd.is_deleted=false "
+       		 +"                  and opd.dzee_approved=true "
+       		 +"                  and opd.detailed_premium=0";
+*/
+        String premiumSql = "select m.email_id,healthcare_plan_id,"
+          		 +"                  ( "
+          		 +"                  CASE "
+          		 +"                  WHEN(m.spouse ='0' && m.no_of_children='0') THEN op.primary_healthcare_plan_premium "
+          		 +"                  WHEN(m.spouse ='0' && m.no_of_children= '1') THEN op.primary_one_child_healthcare_plan_premium"
+          		 +"                  WHEN(m.spouse ='0' && m.no_of_children= '2') THEN op. primary_two_children_healthcare_plan_premium "
+          		 +"                  WHEN(m.spouse ='0' && m.no_of_children>= '3') THEN op.primary_three_and_more_children_healthcare_plan_premium "
+          		 +"                  WHEN(m.spouse ='1' && m.no_of_children= '0') THEN op.couple_healthcare_plan_premium "
+          		 +"                  WHEN(m.spouse ='1' && no_of_children = '1') THEN op.couple_one_child_healthcare_plan_premium"
+          		 +"                  WHEN(m.spouse ='1' && m.no_of_children= '2') THEN op.couple_two_children_healthcare_plan_premium "
+          		 +"                  WHEN(m.spouse ='1' && m.no_of_children>= '3') THEN op.couple_three_children_and_more_healthcare_plan_premium "
+          		 +"                  ELSE 1 "
+          		 +"                  END)as premiums "
+          		 +"                  from employee m, employee_consumptiontemp t, organizationPlans op "
+          		 +"                  where"
+          		 +"                  m.email_id = t.email_id"
+          		 +"                  and t.member_id = 0"
+          		 +"                  and op.is_deleted=false "
+          		 +"                  and op.dzee_approved=true "
+          		 +"                  and op.detailed_premium=0";
+       
 
        String queryDelete = "Delete from pre_enrollment_analytics_standard where dzee_client=? and employer=? and enrollment_year=? and analytic_type=1";
        
-       String employerContriSql = " SELECT employer_id,enrollment_year,contribution_type,fsa_single,fsa_family,hsa_single,hsa_family,premium_single,premium_family "
+      /* String employerContriSql = " SELECT employer_id,enrollment_year,contribution_type,fsa_single,fsa_family,hsa_single,hsa_family,premium_single,premium_family "
        		                     + " from employer emplyr,employer_contribution empContri "
        		                     + " where "
        		                     + " emplyr.email_id = empContri.employer_id"
@@ -184,73 +252,107 @@ public class PlanAnalytics {
     		                     + " and emplyr.employer_group = ?"
     		                     + " and empContri.enrollment_year  = ? "
     		                     + " and emplyr.deleted=false";        
-              
+       */
+       String employerContriSql = " SELECT employer_id, op.enrollment_year,contribution_type,fsa_single,fsa_family,hsa_single,hsa_family,premium_single,premium_family "
+                  + " from employer emplyr,employer_contribution empContri, organizationPlans op "
+                  + " where "
+                  + " emplyr.email_id = empContri.employer_id"
+               + " and emplyr.dzee_client = op.dzee_client"
+               + " and emplyr.employer_group = op.employer_group"
+               + " and empContri.enrollment_year  = op.enrollment_year"
+               + " and emplyr.deleted=false"; 
+
        String organisationPlanSql = " SELECT * FROM organization_plans_data "
     		                        + " where "
                                     + " dzee_client = ?"
                                     + " and employer_group = ?"
                                     + " and enrollment_year = ? "
                                     + " and dzee_approved=true "
-                                	+ " and is_deleted=false";   
+                                	+ " and is_deleted=false"; 
+       
+       	//created following sql ...03/29/2018
+       	String organizationPlansSql = "CREATE TEMPORARY table IF NOT EXISTS organizationPlans (primary key my_pkey (healthcare_plan_id)) AS (SELECT * FROM organization_plans_data "
+    		                        + " where "
+                                    + " dzee_client = ?"
+                                    + " and employer_group = ?"
+                                    + " and enrollment_year = ? "
+                                    + " and dzee_approved=true "
+                                	+ " and is_deleted=false);"; 
+       
+       //created following sql ...03/29/2018
+       String selectOrgPlansSql = "Select * from organizationPlans;";
        
        String taxBracketSql = " SELECT * FROM tax_brackets ";
        
        String globalAssumptionsSql = "SELECT * FROM global_assumptions "; 
  
-       //Updated employee_consumptiontempSql…on 03/18/2018 Removed ac.states='Colorado’condition
-       String employee_consumptiontempSql ="CREATE TEMPORARY table IF NOT EXISTS employee_consumptiontemp AS (select m.email_id ,m.member_id, b.total_consumption as individual_consumption,e.plan_enrollment_year"
-       	    +" from benefit_consumption b, members m, employee e, active_states ac, employer emp"
-       		+" where"
-       		+" emp.dzee_client= ?"
-       		+" and emp.employer_group= ?"
-       		+" and e.plan_enrollment_year= ?"
-       		+" and emp.email_id = e.employer_id and m.email_id = e.email_id"
-       		+" and m.gender = b.gender and m.health_profile = b.health_profile"
-       		+" and b.service_year = e.plan_enrollment_year"
-       		+" and m.age between b.age_from and b.age_to"
-       		+" and b.location=ac.states"
-       		+" and emp.deleted=false "
-			+" and e.deleted=false "
-       		+" group by email_id, member_id,individual_consumption,e.plan_enrollment_year);";      
+       
+
+   Map premiumMap = new HashMap();
+       Map coPayMap = new HashMap();
                 
-       public String loadPreEnrollmentStandardSql ="LOAD DATA local INFILE '"+"/Users/ratnakar/Documents/DZEE/PreEnrollmentAnalytics/src/properties_pk/"+outstr+'_'+employerGroup+"'"
+      /* public String loadPreEnrollmentStandardSql ="LOAD DATA local INFILE '"+"/Users/ratnakar/git/PlanAnalyitcsDesktop/PlanAnalyticsDesktop/src/properties_pk"+outstr+'_'+employerGroup+"'"
        		                                       +" IGNORE "
                                                    +" INTO TABLE pre_enrollment_analytics_standard "
                                                    +" FIELDS TERMINATED BY '|' "
                                                    +" ignore 1 lines; " ;
        		                  
-
+      */
        public static void main(String[] args) throws Exception {
 
 
         	PlanAnalytics empObj = new PlanAnalytics();
-        	System.out.println("OUT DIR"+outdir);
-        	System.out.println("Enter the Dzee client,Employer group and Enrollment year ");
-            empObj.dzee_client = args[0];
-            empObj.employerGroup = args[1];
-            empObj.enrollment_year = args[2];
+        	//System.out.println("OUT DIR"+outdir);
+        	//Updated following code to allow 2 more parameters ...server name and database 03/28/2018
+        	System.out.println("Enter the Server Name, Database Name, Dzee client, Employer group and Enrollment year: ");
+        	empObj.server_name = args[0];
+            empObj.database_name = args[1];
+            empObj.URL= "jdbc:mysql://" + empObj.server_name + ":3306/" + empObj.database_name;
+            System.out.println("URL : "+empObj.URL);
+        	empObj.dzee_client = args[2];
+            empObj.employerGroup = args[3];
+            empObj.enrollment_year = args[4];
+            
                     
             try {
-            	empObj.filePath = empObj.outdir +"/" + empObj.outstr + "_" + empObj.employerGroup + ".csv";
-            	filewrite.writeHeading(empObj.filePath);
-            	empObj.fileName = empObj.filePath.substring(empObj.filePath.lastIndexOf("/")+1);
-            	System.out.println(empObj.fileName);
+            	//empObj.filePath = empObj.employerGroup + ".csv";
+            	//System.out.println("Filepath:"+empObj.filePath);
+            	//filewrite.writeHeading(empObj.filePath);
+            	//empObj.fileName = empObj.filePath.substring(empObj.filePath.lastIndexOf("/")+1);
+            	//System.out.println(empObj.fileName);
             	empObj.databaseConnect(empObj.JDBC_DRIVER,empObj.URL,empObj.USER,empObj.PASSWORD);
+            	//System.out.println(empObj.employee_consumptiontempSql);
                 empObj.employeeConsumptionResultSet = empObj.creatingStatement(empObj.employee_consumptiontempSql, empObj.dzee_client, empObj.employerGroup, empObj.enrollment_year);
-                empObj.memResultSet = empObj.creatingStatement(empObj.memSql, empObj.dzee_client, empObj.employerGroup, empObj.enrollment_year);
-                empObj.planResultSet = empObj.creatingStatement(empObj.planSql, empObj.dzee_client,empObj.employerGroup, empObj.enrollment_year);
-                empObj.deleteFromPlanEnrollmentAnalytics(empObj.queryDelete,empObj.dzee_client,empObj.employerGroup, empObj.enrollment_year);
+                //System.out.println(empObj.memSql);
+                empObj.memResultSet = empObj.createStatement(empObj.memSql);
+               
+                //updated following code .. added empObj.qualifiedPlansResultSet, modified empObj.planResultSet on 03/28/2018
+                empObj.organizationPlansResultSet =empObj.creatingStatement(empObj.organizationPlansSql, empObj.dzee_client, empObj.employerGroup, empObj.enrollment_year);
+                //empObj.planResultSet = empObj.creatingStatement(empObj.planSql, empObj.dzee_client,empObj.employerGroup, empObj.enrollment_year);
+                empObj.planResultSet = empObj.createStatement(empObj.selectOrgPlansSql);
+                
+                
                 empObj.globalResultSet = empObj.executeSqlQuery(empObj.globalAssumptionsSql);
-                empObj.hSAFSAResultSet = empObj.creatingStatement(empObj.organisationPlanSql,empObj.dzee_client,empObj.employerGroup, empObj.enrollment_year);
-                empObj.employerPremiumContribution = empObj.creatingStatement(empObj.employerContriSql,empObj.dzee_client,empObj.employerGroup,empObj.enrollment_year);
+                //empObj.planResultSet = empObj.creatingStatement(empObj.organisationPlanSql,empObj.dzee_client,empObj.employerGroup, empObj.enrollment_year);
+                //empObj.employerPremiumContribution = empObj.creatingStatement(empObj.employerContriSql,empObj.dzee_client,empObj.employerGroup,empObj.enrollment_year);
+                empObj.employerPremiumContribution = empObj.createStatement(empObj.employerContriSql);
                 empObj.taxArray = empObj.fetchfromTaxBrackets(empObj.taxBracketSql);
                 empObj.noEmpRecords = empObj.getCountofRecords(empObj.memResultSet);
-                System.out.println("No of Employees:"+empObj.noEmpRecords);
                 empObj.noOfPlanRecords = empObj.getCountofRecords(empObj.planResultSet);
-                System.out.println("No of plans:"+empObj.noOfPlanRecords);
+                
                 if(empObj.noEmpRecords == 0 || empObj.noOfPlanRecords ==0 ){
                 	throw new Exception ("No plans available for the employee or no employee's assigned for the plan");          	             			
                 }
+                empObj.allPremium = empObj.createStatement(empObj.premiumSql);
+                empObj.rsToMap(empObj.premiumMap, empObj.allPremium, 1, 2, 3);
+                
+                empObj.allPremium = empObj.createStatement(empObj.detailPremiumSql);
+                empObj.rsToMap(empObj.premiumMap, empObj.allPremium, 1, 2, 3);
+                System.out.println(new Date());
+                
+                empObj.coPay = empObj.createStatement(empObj.planCopaySql);
+                empObj.rsToMap(empObj.coPayMap, empObj.coPay, 1, 2, 3);
+                System.out.println(new Date());
                 list = empObj.createIndex(empObj.memResultSet);
                 empObj.getEmployeeExpenses(empObj,list);
                }catch (SQLException se) {      //Handle errors for JDBC
@@ -262,7 +364,6 @@ public class PlanAnalytics {
             		connection.setAutoCommit(true);
                     empObj.connection.close();
                     System.out.println("Connection Closed");
-                    
                }
             }
         }
@@ -317,7 +418,23 @@ public class PlanAnalytics {
             }
             return rs;
         }
-  
+        public ResultSet createStatement(String query) throws SQLException {
+            ResultSet rs = null;
+            PreparedStatement stmt = null;
+
+            //System.out.println("Creating statement...");
+            try {	
+
+                stmt = connection.prepareStatement(query);
+                stmt.execute();
+                rs = stmt.getResultSet();
+             } catch (SQLException se) {      //Handle errors for JDBC
+                se.printStackTrace();
+            } catch (Exception e) {  //Handle errors for Class.forName
+                e.printStackTrace();
+            }
+            return rs;
+        }
  //executing global assumptions query and tax bracket query
         public ResultSet executeSqlQuery(String query ){
         	ResultSet rs = null;
@@ -366,7 +483,7 @@ public class PlanAnalytics {
         //System.out.println("Creating statement...");
         try {
 
-            stmt = connection.prepareStatement(queryDrop);
+            stmt = connection.prepareStatement(queryDelete);
             stmt.setString(1, dzee_client);
             stmt.setString(2, employerGroup);
             stmt.setString(3, enrollment_year);
@@ -378,7 +495,7 @@ public class PlanAnalytics {
         }    
         
     }//close method
-
+/*
  //insert into the table plan enrollment analytics
      public void insertPlanEnrollmentAnalytics(Vector<PlanDetail> planDetailVector, ArrayList<planInfo> premiumList,ArrayList<planInfo> premium_OOP_List) throws IOException{
 
@@ -404,49 +521,69 @@ public class PlanAnalytics {
         filewrite.writeToCsv(planDetailVector,filePath);//write to CSV
         
     }//method close
-
+*/
  
 // calculate the net expenses for each plan 
        public void getEmployeeExpenses(PlanAnalytics empObj, ArrayList<Integer> list) throws SQLException, IOException {
             double DmonthlyPremium = 0.0;
             int RmonthlyPremium=0;
-            double AnnualHealthcarePremiumPlusOOP =0.0;
+        double AnnualHealthcarePremiumPlusOOP =0.0;
             int OOP = 0;
             int recommendedhsaFsaConribution[][] = new int[2][1];
             double employerPremiumContri=0.0;
             int taxAdjustedOOP;
             int employerCost=0;
             int annualEmployerPremiumContribution=0;
-            int employerHSAFSAContribution=0; 
-                       	
+            int employerHSAFSAContribution=0;
+            int member_count;
+            String enrollmentSql = "insert into pre_enrollment_analytics_standard (dzee_client,employer,enrollment_year,employee_email_id,plan_id,total_cost_based_plan_rank,employer_total_cost_based_plan_rank, "
+                    + "oop,monthly_premium,annual_healthcare_premium_plus_OOP,total_family_service_cost,annual_supplement_plan_premium,hsa_contribution,fsa_contribution,tax_adjusted_OOP,analytic_type, "
+                    + "employer_premium_contribution, employer_oop_contribution) "
+                    + " values \n";
+      		String values="";
+            int recs = 0;
+            int employees =0;
+
+            empObj.deleteFromPlanEnrollmentAnalytics(empObj.queryDelete,empObj.dzee_client,empObj.employerGroup, empObj.enrollment_year);
+          System.out.println("Run Start: "+new Date());
             try{
              
               connection.setAutoCommit(false);	
+              
+              int employeesPerBatch = 2000 / empObj.noOfPlanRecords;
              // for each member loop    
              for (int i = 0; i <  list.size(); i++) {
+            	employees++;
                 empObj.memResultSet.absolute((Integer) list.get(i));
                 String email = empObj.memResultSet.getString("email_id");
+                member_count = empObj.memResultSet.getInt("member_count");
+                int age = empObj.memResultSet.getInt("age");
+                //System.out.println(new Date()+": "+i+","+member_count+","+empObj.memResultSet.getInt("member_id")+","+email);
+                //System.out.println(new Date()+":" +i+email);
                 //call to calculate employer premium contribution
                 empObj.planResultSet.beforeFirst();
+
                 while (empObj.planResultSet.next()) { // for each plan for that employer group
                     //String plan_id = empObj.planResultSet.getString("healthcare_plan_id");
                     String plan_id = empObj.planResultSet.getString(3);
-                    //System.out.println("plan_id"+plan_id);
+                    recs++;
+                    
                     //call calculate OOP for for each member for each plan
-                    OOP = empObj.calculateExpenses(planResultSet, memResultSet, (Integer)list.get(i), email);
-                    //System.out.println("OOP"+OOP);
+                    OOP = empObj.calculateExpenses(planResultSet, memResultSet, (Integer)list.get(i), email, member_count);
+                    
                     //empObj.memResultSet.absolute((Integer)list.get(i));
-                    DmonthlyPremium =  getPremium(dzee_client,employerGroup,enrollment_year,plan_id, email, (Integer.parseInt(empObj.planResultSet.getString("detailed_premium"))));
+                    DmonthlyPremium = getMapValue(premiumMap,email,plan_id);
+                    
                     RmonthlyPremium = (int) Math.round(DmonthlyPremium);
-                    employerPremiumContri = empObj.calculateEmployerPremiumContribution(email,memResultSet,planResultSet,employerPremiumContribution,(Integer)list.get(i),RmonthlyPremium);
-                    employerHSAFSAContribution=getEmployerHSAFSAContibution(memResultSet,planResultSet,hSAFSAResultSet,employerPremiumContribution,(Integer) list.get(i), email);
-                    recommendedhsaFsaConribution = CalculateRecommendedHsaFsaContibution(OOP,planResultSet, memResultSet,hSAFSAResultSet,employerPremiumContribution,globalResultSet,employerHSAFSAContribution,(Integer) list.get(i), email);
-                    taxAdjustedOOP = calculateTaxAdjustedOOP(memResultSet,planResultSet,hSAFSAResultSet,employerHSAFSAContribution,(Integer)list.get(i),recommendedhsaFsaConribution,taxArray,OOP);
+                    employerPremiumContri = empObj.calculateEmployerPremiumContribution(email,memResultSet,planResultSet,employerPremiumContribution,(Integer)list.get(i),RmonthlyPremium, member_count);
+                    employerHSAFSAContribution=getEmployerHSAFSAContibution(memResultSet,planResultSet,planResultSet,employerPremiumContribution,(Integer) list.get(i), email, member_count);
+                    recommendedhsaFsaConribution = CalculateRecommendedHsaFsaContibution(OOP,planResultSet, memResultSet,planResultSet,employerPremiumContribution,globalResultSet,employerHSAFSAContribution,(Integer) list.get(i), email, member_count, age);
+                    taxAdjustedOOP = calculateTaxAdjustedOOP(memResultSet,planResultSet,planResultSet,employerHSAFSAContribution,(Integer)list.get(i),recommendedhsaFsaConribution,taxArray,OOP);
                     AnnualHealthcarePremiumPlusOOP = (DmonthlyPremium- employerPremiumContri)*12 +taxAdjustedOOP;
                     //AnnualHealthcarePremiumPlusOOP = RmonthlyPremium*12+OOP;
                     annualEmployerPremiumContribution= (int) (employerPremiumContri * 12);
                     empObj.addToList(plan_id, employerPremiumContri, AnnualHealthcarePremiumPlusOOP,empObj);
-                    int family_consumption = empObj.getFamilyConsumption(memResultSet,(Integer) list.get(i), email);
+                    int family_consumption = empObj.getFamilyConsumption(memResultSet,(Integer) list.get(i), email, member_count);
                     empObj.memResultSet.absolute((Integer)list.get(i));
                     planDetailVector.addElement(new PlanDetail(dzee_client,employerGroup,Integer.parseInt(enrollment_year),email,plan_id,OOP,DmonthlyPremium,
                     AnnualHealthcarePremiumPlusOOP,family_consumption,recommendedhsaFsaConribution[0][0],
@@ -454,13 +591,30 @@ public class PlanAnalytics {
                 }
                 //printList(email,empObj.premiumList,empObj.premium_OOP_List);
                 empObj.planRank(empObj.premiumList,empObj.premium_OOP_List);
-                empObj.insertPlanEnrollmentAnalytics(planDetailVector,empObj.premiumList,empObj.premium_OOP_List);
+                int lastrec=0;
+                if(employees%employeesPerBatch == 0 || i == (list.size()-1) ) {
+                	lastrec=1;
+                }
+                values+=empObj.insertPlanEnrollmentAnalytics(planDetailVector,empObj.premiumList,empObj.premium_OOP_List, lastrec);
+                
+                if(employees%employeesPerBatch == 0) {
+                	System.out.println("Records Inserted: "+recs);
+               	 	insertDB(values,enrollmentSql);
+               	 	values="";
+                }
+                
                 empObj.clearAll(premiumList,premium_OOP_List,planDetailVector);
             }
-             empObj.loadCSV(empObj.fileName);
-             connection.commit();
+             
+             insertDB(values,enrollmentSql);
+
+             //System.out.println("Records Inserted: "+recs);
+             //System.out.println(new Date()+": Insert Ended");
+             
+ //            empObj.loadCSV(empObj.fileName);
+             
             } catch (SQLException se) {      //Handle errors for JDBC
-            	se.printStackTrace();
+                se.printStackTrace();
                /* try {
 					connection.rollback();
                 } catch (SQLException e) {
@@ -472,8 +626,8 @@ public class PlanAnalytics {
             
         }//method close
        
-       public int getFamilyConsumption(ResultSet memResultSet,int rowNum, String email) throws NumberFormatException, SQLException{
-    	   int memberCount=0;
+       public int getFamilyConsumption(ResultSet memResultSet,int rowNum, String email,int memberCount) throws NumberFormatException, SQLException{
+    int members = 0;
     	   int family_consumption=0;
     	   memResultSet.absolute(rowNum);
     	   do{
@@ -485,8 +639,12 @@ public class PlanAnalytics {
     				continue;   
     			    }
     			   else{
-    			   memberCount++;
+    			   members++;
+    			   
     			   family_consumption += Integer.parseInt(memResultSet.getString("individual_consumption"));
+    			   if(members >= memberCount) {
+    				   break;
+    			   }
     			   }
     		   }  			   
     	  }while(memResultSet.next()); 	       
@@ -495,18 +653,18 @@ public class PlanAnalytics {
  
  //Calculate suggested HSA/FSA Contribution 
         public int[][] CalculateRecommendedHsaFsaContibution(int OOP, ResultSet planResultSet, ResultSet memResultSet,
-        		        ResultSet hSAFSAResultSet,ResultSet employerPremiumContribution,ResultSet globalResultSet,int employerHSAFSAContribution,int rowNum, String email) throws SQLException {
+        		        ResultSet hSAFSAResultSet,ResultSet employerPremiumContribution,ResultSet globalResultSet,int employerHSAFSAContribution,int rowNum, String email, int members, int age) throws SQLException {
 		// TODO Auto-generated method stub
          String hsaFsaflag = "";
          String plan_id = planResultSet.getString(3);
-         int memberCount = 0;
+    
          int HSA_FSAContributionArray[][] = new int[2][1];
          int FSA_Max_limit_Family=0;
          int FSA_Max_limit_Individual=0;
          int HSA_Max_limit_Family=0;
          int HSA_Max_limit_Individual=0;
          int carryForward =0;
-         int age =0;
+         
          hSAFSAResultSet.beforeFirst();
          while(hSAFSAResultSet.next()){
         	 if(plan_id.equals(hSAFSAResultSet.getString(3))){
@@ -525,21 +683,10 @@ public class PlanAnalytics {
               if(globalResultSet.getString(1).equals("HSA Max limit - Individual (Employer+Employee)"))
                  HSA_Max_limit_Individual =Integer.parseInt(globalResultSet.getString(2));
              }
-        
-         memResultSet.absolute(rowNum);
-         do{
-             //compare email ids of primary and members to identify the number of members in the family
-            if (memResultSet.getString("email_id").equals(email)) {
-                 memberCount++;
-                 if(memResultSet.getInt("member_id")== 0){
-            	 age = memResultSet.getInt("Age");
-               }
-             }         
-           }while(memResultSet.next()); 
          
             if(hsaFsaflag.equalsIgnoreCase("F")){
             	HSA_FSAContributionArray[0][0]= 0;
-               if(memberCount > 1 ){
+               if(members > 1 ){
             	   if(OOP >= FSA_Max_limit_Family){
             		   HSA_FSAContributionArray[1][0] = FSA_Max_limit_Family - employerHSAFSAContribution;
             		 
@@ -605,7 +752,7 @@ public class PlanAnalytics {
             }
               else if (hsaFsaflag.equalsIgnoreCase("H")){
             	 HSA_FSAContributionArray[1][0]= 0;
-            	 if(memberCount > 1 ){
+            	 if(members > 1 ){
             		 
             		 HSA_FSAContributionArray[0][0] = HSA_Max_limit_Family - employerHSAFSAContribution;
              	       }               
@@ -627,11 +774,11 @@ public class PlanAnalytics {
  //Calculate HSA/FSA employer contribution
         
     public int getEmployerHSAFSAContibution(ResultSet memResultSet,ResultSet planResultSet,ResultSet hSAFSAResultSet,
-    		ResultSet employerPremiumContribution,int rowNum,String email) throws SQLException{
+    		ResultSet employerPremiumContribution,int rowNum,String email, int memberCount) throws SQLException{
     	
     	String hsaFsaflag = "";
         String plan_id = planResultSet.getString(3);
-        int memberCount = 0;
+        
         int employerHSAFSAContribution=0;
         
         hSAFSAResultSet.beforeFirst();
@@ -641,14 +788,7 @@ public class PlanAnalytics {
        		 break;
          	 }
         }
-    	 memResultSet.absolute(rowNum);
-         do{
-            //compare email ids of primary and members to identify the number of members in the family
-            if (memResultSet.getString("email_id").equals(email)) {
-            memberCount++;        
-            } 
-         }while(memResultSet.next());
-         
+    	
          employerPremiumContribution.first();
          if(hsaFsaflag.equalsIgnoreCase("F")){
         	 if(memberCount > 1 ){
@@ -737,19 +877,11 @@ public class PlanAnalytics {
     }//method close
 
 //calculate employer premium contribution
-      public int calculateEmployerPremiumContribution(String email,ResultSet memResultSet,ResultSet planResultSet,ResultSet employerPremiumContribution,Integer rowNum,int monthlyPremium) throws SQLException {
+      public int calculateEmployerPremiumContribution(String email,ResultSet memResultSet,ResultSet planResultSet,ResultSet employerPremiumContribution,Integer rowNum,int monthlyPremium, int memberCount) throws SQLException {
         // TODO Auto-generated method stub
-        	int memberCount = 0;
-        	int employerContriPercent = 0;
-        	
-        	memResultSet.absolute(rowNum);
-          	do{
 
-             //compare email ids of primary and members to identify the number of members in the family
-              if (memResultSet.getString("email_id").equals(email)) {
-            	   memberCount++;
-               }         
-            }while(memResultSet.next()); 
+        	int employerContriPercent = 0;
+
             //System.out.println(memberCount);
             employerPremiumContribution.first();
         	if (employerPremiumContribution.getString("contribution_type").equalsIgnoreCase("variable")){
@@ -774,7 +906,7 @@ public class PlanAnalytics {
 
        
 //calculate expenses for each member of the family
-       public int calculateExpenses(ResultSet planResultSet, ResultSet memResultSet, Integer rowNum, String email) throws SQLException {
+       public int calculateExpenses(ResultSet planResultSet, ResultSet memResultSet, Integer rowNum, String email, int memberCount) throws SQLException {
 
            int eff_ded = 0;
             int family_ded = 0;
@@ -785,22 +917,20 @@ public class PlanAnalytics {
             int deductible_limit = 0;
             int rem_ded = 0 ;/*Integer.parseInt(planResultSet.getString(7));*/
             String plan_id = planResultSet.getString(3);
-            int family_in_network_deductible_limit = Integer.parseInt(planResultSet.getString(7));
-            int individual_in_network_deductible_limit = Integer.parseInt(planResultSet.getString(6));
-            int family_in_network_oop_limit = Integer.parseInt(planResultSet.getString(9));
-            int individual_in_network_oop_limit = Integer.parseInt(planResultSet.getString(8));
-            int plan_level_co_insurance = Integer.parseInt(planResultSet.getString(10));
+          //  int family_in_network_deductible_limit = Integer.parseInt(planResultSet.getString(7));
+            int family_in_network_deductible_limit = Integer.parseInt(planResultSet.getString("family_in_network_deductible_limit"));
+        //    int individual_in_network_deductible_limit = Integer.parseInt(planResultSet.getString(6));
+       //     int family_in_network_oop_limit = Integer.parseInt(planResultSet.getString(9));
+        //    int individual_in_network_oop_limit = Integer.parseInt(planResultSet.getString(8));
+        //    int plan_level_co_insurance = Integer.parseInt(planResultSet.getString(10));
+            
+            int individual_in_network_deductible_limit = Integer.parseInt(planResultSet.getString("individual_in_network_deductible_limit"));
+                 int family_in_network_oop_limit = Integer.parseInt(planResultSet.getString("family_in_network_oop_limit"));
+                int individual_in_network_oop_limit = Integer.parseInt(planResultSet.getString("individual_in_network_oop_limit"));
+                 int plan_level_co_insurance = Integer.parseInt(planResultSet.getString("plan_level_co_insurance"));
             int Individual_Consumption=0;
             int i=0;
             
-            int memberCount =0;
-        	memResultSet.absolute(rowNum);
-            do{
-               //compare email ids of primary and members to identify the number of members in the family
-               if (memResultSet.getString("email_id").equals(email)) {
-               memberCount++;        
-               } 
-            }while(memResultSet.next());
             if (memberCount > 1){
             	OOP_limit = family_in_network_oop_limit;
             	deductible_limit = family_in_network_deductible_limit;
@@ -810,8 +940,10 @@ public class PlanAnalytics {
             	deductible_limit = individual_in_network_deductible_limit;
             }
             
+            planCopay = (int)getMapValue(coPayMap,email, plan_id);
         	rem_ded = deductible_limit;
             memResultSet.absolute(rowNum);
+            int memProcessed = 0;
             do{          	
             	
             //compare email ids of primary and members to identify the members in the family
@@ -835,7 +967,6 @@ public class PlanAnalytics {
 
                  family_oop += mem_oop;
                  family_ded += mem_oop;
-                 planCopay = calculatePlanCopay(planResultSet,memResultSet,rowNum);
                  
                  family_oop += planCopay;
                  //System.out.println(email+" "+plan_id+" "+i+"  " +Individual_Consumption+"  "+rem_ded+"  "+family_oop+"  "+family_ded);
@@ -852,102 +983,18 @@ public class PlanAnalytics {
                  } else {
                      rem_ded = 0;
                  }
-               }                
-                
+                 memProcessed++;
+                 if(memProcessed>=memberCount) {
+                	 break;
+                 }
+               }
              }while(memResultSet.next());
-          //System.out.println("OOP: "+family_oop);
+
           return family_oop;
         }//method close
 
-       //Updated calculatePlanCopay method on 03/12/2018, Please refer the line just below the 'updated code' comment
-       // calculate Copay for each member and for each plan
-      public int calculatePlanCopay(ResultSet planResultSet, ResultSet memResultSet, int rowNum) throws SQLException {
-            String gender, plan_id;
-            ResultSet planCopayResultSet=null;
-            int health_profile;
-            //updated code on 03/12/2018
-            int age, tot_copay=0;
-            String employer_group,dzee_client;
-            //memResultSet.absolute(rowNum);
-            if (Double.parseDouble(planResultSet.getString(5)) == 0.0)
-                return 0;
-            else
-            System.out.println(memResultSet.getString("gender"));
-            health_profile = Integer.parseInt(memResultSet.getString("health_profile"));
-            System.out.println(memResultSet.getString("health_profile"));
-            gender = memResultSet.getString("gender");
-            System.out.println(memResultSet.getString("gender"));
-            age = Integer.parseInt(memResultSet.getString("age"));
-            System.out.println(memResultSet.getString("age"));
-            plan_id = planResultSet.getString(3);
-            System.out.println("Plan Id -"+plan_id);
-            employer_group = planResultSet.getString(2);
-            dzee_client = planResultSet.getString(1);
-                     
-            connection.createStatement();
-            try {
-
-                PreparedStatement stmt = connection.prepareStatement(planCopaySql);
-                stmt.setString(1, plan_id);
-                stmt.setString(2, gender);
-                stmt.setString(3, String.valueOf(health_profile));
-                stmt.setString(4, String.valueOf(age));
-                stmt.setString(5, enrollment_year);
-                stmt.setString(6, employer_group);
-                stmt.setString(7, dzee_client);
-                planCopayResultSet = stmt.executeQuery();
-                planCopayResultSet.first();
-                //updated code on 03/12/2018
-                tot_copay= Integer.parseInt(planCopayResultSet.getString("total_co_pay"));
-              } catch (SQLException se) {      //Handle errors for JDBC
-                	//updated code..on 03/12/2018 inserted return 0 
-                	return 0;
-            } catch (Exception e) {  //Handle errors for Class.forName
-            	e.printStackTrace();
-            }
-            //updated code.. on 03/12/2018
-            return (tot_copay);
-        }//calculatePlanCopay method close
-
-
-// calculate premium based on age wise or on health care plan id
-       public double getPremium(String dzee_client,String employerGroup,String enrollment_year,String plan_id, String email_id, int detailed_premium) throws SQLException {
-              ResultSet premiumResultSet =null; 
-              connection.createStatement();
-           try{   
-            if (detailed_premium == 0) {
-                	PreparedStatement stmt = connection.prepareStatement(premiumSql);
-                    stmt.setString(1, email_id);
-                    stmt.setString(2, dzee_client);
-                    stmt.setString(3, employerGroup);
-                    stmt.setString(4, enrollment_year );
-                    stmt.setString(5, plan_id);
-                    premiumResultSet = stmt.executeQuery();
-                    premiumResultSet.first();                
-              }
-              else 
-                {
-            	  PreparedStatement stmt = connection.prepareStatement(detailPremiumSql);
-                  stmt.setString(1, dzee_client);
-                  stmt.setString(2, employerGroup);
-                  stmt.setString(3, plan_id);
-                  stmt.setString(4, email_id );
-                  stmt.setString(5, enrollment_year);
-                  premiumResultSet = stmt.executeQuery();
-                  premiumResultSet.first();   
-                 }
-               } catch (SQLException se) {      //Handle errors for JDBC
-               se.printStackTrace();
-              } catch (Exception e) {  //Handle errors for Class.forName
-               e.printStackTrace();
-              }             
-            premiumResultSet.first();
-            return (Double.parseDouble(premiumResultSet.getString("premiums"))); // return premium for that plan
-        }//getPremium method close
-       
-
 //printing the plan id and premiums and OOP
-       public void printList(String email,ArrayList<planInfo> premiumList,ArrayList<planInfo> premium_OOP_List) {
+   public void printList(String email,ArrayList<planInfo> premiumList,ArrayList<planInfo> premium_OOP_List) {
             System.out.println("\n Print plan id and premium for employee -- "+ email );
             for (planInfo plan : premiumList)
                 System.out.println(plan.healthcare_plan_id + "   " + plan.premium_OOP);
@@ -988,23 +1035,50 @@ public class PlanAnalytics {
       
       
  //load CSV file into the database     
-      public void loadCSV(String fileName){
+  /*    public void loadCSV(String fileName){
       	ResultSet rs = null;
        	String loadPreEnrollmentStandardSql ="LOAD DATA local INFILE '"+outfilePath+fileName+"'"+" IGNORE "
                 +" INTO TABLE pre_enrollment_analytics_standard "
                 +" FIELDS TERMINATED BY '|' ignore 1 lines; ";
+       	System.out.println("Load sql"+loadPreEnrollmentStandardSql);
       	
       	 PreparedStatement stmt = null;
           try {
         	  stmt = connection.prepareStatement(loadPreEnrollmentStandardSql);
-              rs = stmt.executeQuery();           
+              rs = stmt.executeQuery();  
+              
            } catch (SQLException se) {      //Handle errors for JDBC
               se.printStackTrace();
           } catch (Exception e) {  //Handle errors for Class.forName
               e.printStackTrace();
           }
       }
-      
+    */  
+public void populateMap(Map mapName, String k1, String k2, double val ) {
+	String key = k1 + ":" +k2;
+	mapName.put(key,val);
+}
+
+public double getMapValue (Map mapName, String k1, String k2) {
+	String key = k1 + ":" +k2;
+	if(mapName.containsKey(key)) {
+		return (double)mapName.get(key);
+	}
+	return 0;
+}
+
+public void rsToMap (Map mapName, ResultSet rs, int k1pos, int k2pos, int vpos) {
+	try {
+		rs.beforeFirst();
+		while(rs.next()) {
+			populateMap(mapName, rs.getString(k1pos), rs.getString(k2pos), rs.getDouble(vpos));
+		}
+	} catch (SQLException e) {
+		// TODO Auto-generated catch block
+		e.printStackTrace();
+	}
+	
+}
  //delete CSV file from the package
       public void deleteCSV(String filePath){
     	  
@@ -1022,4 +1096,133 @@ public class PlanAnalytics {
       		e.printStackTrace();
       	}
      }//method close
+   // insert into the table plan enrollment analytics
+  	public String insertPlanEnrollmentAnalytics(
+  			List<PlanDetail> planDetailVector, List<planInfo> premiumList,
+  			List<planInfo> premiumOOPList, int lastrec) {
+
+  		int totalCostbasedPlanRank = 0;
+  		int employerTotalCostBasedPlanRank = 0;
+  		
+  		String allVal="";
+  		
+  		for (int i = 0; i < planDetailVector.size(); i++) {
+  			for (int j = 0; j < premiumList.size(); j++) {
+  				if (premiumList.get(j).healthcare_plan_id
+  						.equals(planDetailVector.get(i).gethealthcare_plan_id())) {
+  					employerTotalCostBasedPlanRank = premiumList.get(j).planRank;
+  				}
+  			}
+  			for (int k = 0; k < premiumOOPList.size(); k++) {
+  				if (premiumOOPList.get(k).healthcare_plan_id
+  						.equals(planDetailVector.get(i).gethealthcare_plan_id())) {
+  					totalCostbasedPlanRank = premiumOOPList.get(k).planRank;
+  				}
+  			}
+  			planDetailVector.get(i).setPlanRanks(totalCostbasedPlanRank,
+  					employerTotalCostBasedPlanRank);
+  			String val="( ";
+  				// create the MySql insert prepared statement
+  				val=popVal(val, planDetailVector.get(i).getdzee_client()); //1
+  				val=popVal(val, planDetailVector.get(i).getemployer_group()); //2
+  				val=popValInt(val, planDetailVector.get(i).getEnrollment_Year()); //3
+  				val=popVal(val, planDetailVector.get(i).getEmployee_Email_ID()); //4
+  				val=popVal(val, planDetailVector.get(i).gethealthcare_plan_id()); //5
+  				val=popValInt(val, totalCostbasedPlanRank); //6
+  				val=popValInt(val, employerTotalCostBasedPlanRank); //7
+  				val=popValInt(val, planDetailVector.get(i).getOOP()); //6
+  				val=popValDouble(val, planDetailVector.get(i).getPremium()); //7
+  				val=popValDouble(val, planDetailVector.get(i).getpremium_OOP()); //8
+  				val=popValInt(val, planDetailVector.get(i).getTotal_Consumption()); //9
+  				val=popValInt(val, 0); //10
+  				val=popValInt(val, planDetailVector.get(i).getHSAContribution()); //11
+  				val=popValInt(val, planDetailVector.get(i).getFSAContribution()); //12
+  				val=popValInt(val, planDetailVector.get(i).getTaxAdjustedOOP()); //13
+  				val=popValInt(val, 1); //14
+  				val=popValDouble(val, planDetailVector.get(i).getEmployerPremiumContribution()); //14
+  				val=popValInt(val, 0, 1); //14
+  				if(lastrec==1 && i == (planDetailVector.size()-1)) {
+  					val+=");\n";
+  				} else {
+  				val+="),\n";
+  				}
+  						
+  				allVal+=val;
+  				/*
+  				preparedStmt.setString(1, planDetailVector.get(i)
+  						.getdzee_client());
+  				preparedStmt.setString(2, planDetailVector.get(i)
+  						.getemployer_group());
+  				preparedStmt.setInt(3, planDetailVector.get(i)
+  						.getEnrollment_Year());
+  				preparedStmt.setString(4, planDetailVector.get(i)
+  						.getEmployee_Email_ID());
+  				preparedStmt.setString(5, planDetailVector.get(i).gethealthcare_plan_id());
+  				preparedStmt.setInt(6, totalCostbasedPlanRank);// employer rank
+  				preparedStmt.setInt(7, employerTotalCostBasedPlanRank);// premium
+  																		// rank
+  				preparedStmt.setDouble(8, planDetailVector.get(i).getOOP());// OOP
+  				preparedStmt.setDouble(9, planDetailVector.get(i)
+  						.getPremium());// premium
+  				preparedStmt.setDouble(10, planDetailVector.get(i)
+  						.getpremium_OOP());// premium+OOP
+  				preparedStmt.setInt(11, planDetailVector.get(i)
+  						.getTotal_Consumption());// //total consumption
+  				preparedStmt.setInt(12, 0);// Annual supplement plan premium
+  				preparedStmt.setInt(13, planDetailVector.get(i)
+  						.getHSAContribution());// HSAContribution
+  				preparedStmt.setInt(14, planDetailVector.get(i)
+  						.getFSAContribution());// FSAContribution
+  				preparedStmt.setInt(15, planDetailVector.get(i)
+  						.getTaxAdjustedOOP());// TaxAdjustedOOP
+  				preparedStmt.setInt(16, 1);// Analytic_Type
+  				preparedStmt.setInt(17, 1);// Analytic_Type
+  				preparedStmt.setInt(18, 1);// Analytic_Type
+  				/*preparedStmt.setInt(
+  						17,
+  						getMin(planDetailVector.get(i).getPremium(),
+  								planDetailVector.get(i)
+  										.getEmployerPremiumContribution()));// EmployerPremiumContribution
+  				preparedStmt.setInt(18, planDetailVector.get(i)
+  						.getEmployerPremiumContribution());// EmployerOOPContribution
+
+  				// execute the prepared statement
+  				//preparedStmt.execute();
+  				preparedStmt.addBatch();
+  			} catch (SQLException se) { // Handle errors for JDBC
+  				se.printStackTrace();
+  			} catch (Exception e) { // Handle errors for Class.forName
+  				e.printStackTrace();
+  			}*/
+  		}
+  		return allVal;
+  	}// method close
+  	public void insertDB(String vals,String enrollmentSql) {
+  		enrollmentSql += vals;
+  	//	System.out.println(enrollmentSql);
+  		try {
+  			createStatement(enrollmentSql);
+  		} catch (SQLException se) { // Handle errors for JDBC
+				se.printStackTrace();
+			} catch (Exception e) { // Handle errors for Class.forName
+				e.printStackTrace();
+			}
+  		
+  	}
+  	public String popVal(String v, String ad) {
+			v+="'"+ad+"',";
+			return v;
+		}
+  	public String popValInt(String v, int ad) {
+		v+=Integer.toString(ad)+",";
+		return v;
+	}
+  	public String popValInt(String v, int ad, int nocomma) {
+		v+=Integer.toString(ad);
+		return v;
+	}
+  	public String popValDouble(String v, double ad) {
+		v+=Double.toString(ad)+",";
+		return v;
+	}
   }//Class close
